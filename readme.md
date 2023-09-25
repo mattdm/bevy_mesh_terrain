@@ -48,7 +48,15 @@ This is the source of the actual terrain textures. In this configuration, there 
 This is an RGBA texture where the intensity of each channel controls the alpha of each of the Color Array Textures. So for example if the R channel is white and the rest black, the entire terrain will be grass. This is what you would typically edit in a 'terrain editor' to paint your grass in one area, dirt in another area, snow on mountains, etc.
 
 
+## Output and Logging
 
+Run the example with debug logging:
+
+```
+RUST_LOG="warn,basic=debug" cargo run  --example basic
+```
+
+You can adjust output levels for your own app with Bevy's LogPlugin. See [different settings for debug in release builds](https://bevy-cheatbook.github.io/features/log.html#different-settings-for-debug-and-release-builds) in the Unofficial Bevy Cheat Book for an example.
 
 
 ## Bevy versions

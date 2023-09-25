@@ -158,20 +158,21 @@ impl TerrainData{
  //finalizes loading of height map by looking for image handle and applying it to the height map data 
 pub fn load_height_map_data_from_image(  
     
-    mut terrain_query: Query<&mut TerrainData, With<TerrainConfig>>,
+    mut terrain_query: Query<(Entity, &mut TerrainData), With<TerrainConfig>>,
     asset_server: Res<AssetServer>,  
     mut images: ResMut<Assets<Image>>, 
     
 ){ 
     
-    for mut terrain_data in terrain_query.iter_mut() {
-        
+    for (id, mut terrain_data) in terrain_query.iter_mut() {
+        trace!("Possibly creating height map for {:?}",id);
         
         let height_map_data_is_some = terrain_data.height_map_data.is_some(); 
          
          //try to load the height map data from the height_map_image_handle 
          if !height_map_data_is_some {
                 
+                debug!("Creating height map for {:?}",id);
                 //try to get the loaded height map image from its handle via the asset server - must exist and be loaded 
                 let height_map_image:&Image = match &terrain_data.height_map_image_handle {
                     Some(height_map_handle) => {
@@ -179,7 +180,7 @@ pub fn load_height_map_data_from_image(
                         let height_map_loaded = asset_server.get_load_state( height_map_handle )  ;
                     
                         if height_map_loaded != LoadState::Loaded  {
-                            info!("Waiting for height map image to load.");
+                            info!("Waiting for height map source image to load.");
                             continue;
                         }  
                         
@@ -191,11 +192,10 @@ pub fn load_height_map_data_from_image(
                 let loaded_heightmap_data_result =  HeightMapU16::load_from_image( height_map_image) ;
                    
                 match loaded_heightmap_data_result {
-                    Ok( loaded_heightmap_data ) => {
-                       
-                           //take out of box 
-                            terrain_data.height_map_data = Some( *loaded_heightmap_data ); 
-                 
+                    Ok( loaded_heightmap_data ) => {                       
+                        //take out of box 
+                        terrain_data.height_map_data = Some( *loaded_heightmap_data ); 
+                        debug!("Height map data created for {:?}",id);
                     },
                     Err(e) => {
                         
@@ -206,6 +206,7 @@ pub fn load_height_map_data_from_image(
                 
                 let alpha_mask_image:Image = build_alpha_mask_image( height_map_image );
                 terrain_data.alpha_mask_image_handle = Some(images.add(  alpha_mask_image   ));
+                debug!("Alpha mask created for {:?}",id);
                    
             
                
@@ -260,18 +261,20 @@ pub fn build_alpha_mask_image( height_map_image: &Image ) -> Image {
 
 //consider building a custom loader for this , not  Image 
 pub fn load_terrain_texture_from_image( 
-    mut terrain_query: Query<&mut TerrainData, With<TerrainConfig>>,
+    mut terrain_query: Query<(Entity,&mut TerrainData), With<TerrainConfig>>,
     asset_server: Res<AssetServer>,  
     mut images: ResMut<Assets<Image>>  , 
     
     mut materials: ResMut<Assets<TerrainMaterial>>,
 ){
-       for mut terrain_data in terrain_query.iter_mut() {
+    for (id, mut terrain_data) in terrain_query.iter_mut() {
+        trace!("Possibly creating terrain texture material for {:?}",id);
   
-           let texture_image_finalized  = terrain_data.texture_image_finalized; 
+        let texture_image_finalized  = terrain_data.texture_image_finalized; 
          
          //try to load the height map data from the height_map_image_handle 
             if !texture_image_finalized {
+                debug!("Creating terrain texture material for {:?}",id);
                  
                 let texture_image:&mut Image = match &terrain_data.texture_image_handle {
                     Some(texture_image_handle) => {
@@ -279,16 +282,19 @@ pub fn load_terrain_texture_from_image(
                         let texture_image_loaded = asset_server.get_load_state( texture_image_handle )  ;
                     
                         if texture_image_loaded != LoadState::Loaded  {
-                            info!("Waiting for terrain texture image to load.");
+                            info!("Waiting for terrain texture source image to load.");
                             continue;
                         }  
                         
                         images.get_mut(texture_image_handle).unwrap()
                     }
-                    None => {continue} 
+                    None => {
+                        warn!("No terrain texture source image configured.");
+                        continue;
+                    } 
                 };
                 
-                
+                trace!("Configuring image sampler.");
                    texture_image.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
                         label: None,
                         address_mode_u: AddressMode::Repeat,
@@ -304,11 +310,11 @@ pub fn load_terrain_texture_from_image(
                     let array_layers = terrain_data.texture_image_sections;
                     
                     if  array_layers > 1 {
+                        debug!("Found {} layers in terrain texture source.",array_layers);
                          texture_image.reinterpret_stacked_2d_as_array(array_layers);
                     }
                    
                    terrain_data. texture_image_finalized = true; 
-                   
                    
                    terrain_data.terrain_material_handle = Some(  materials.add(
                         TerrainMaterial {
@@ -322,11 +328,12 @@ pub fn load_terrain_texture_from_image(
                                 alpha_mask_texture: terrain_data.alpha_mask_image_handle.clone() 
                             }
                     ) ); 
-                    
+                    debug!("Created terrain material asset from terrain_data {:?}.",id);
+
                     
                     
                  
                 
             }
-       }   
+    }   
 }

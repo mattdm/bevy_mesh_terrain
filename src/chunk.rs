@@ -213,44 +213,49 @@ pub fn destroy_terrain_chunks(
         
     let viewer_location:Vec3 = match viewer {
         Ok(view) => { view.translation() },
-        // FIX: probably should log a warning if there are multiple (or no) viewers, rather than just setting to the origin
-        Err(_e) => Vec3::new(0.0,0.0,0.0)
+        Err(_e) => { warn!("More than one TerrainViewer. Setting viewer location to 0,0,0 in confusion."); Vec3::ZERO }
     };
         
     
     for (chunk_entity_id, chunk_data, parent_terrain_entity) in chunk_query.iter_mut() { 
-        
+
         let chunk_id = chunk_data.chunk_id; 
         
+        trace!("Checking chunk {} for destruction.",chunk_id);
+
         let mut needs_despawn = None;
         
         if let Ok( (mut terrain_data, terrain_config, terrain_transform ) ) = terrain_query.get_mut( parent_terrain_entity.get() ){
             
-            let deadband_multiplier = 1.2; //reduces the frequency of chunks having to rebuild so often 
+            // FIXME: hardcoded magic multiplier should be configurable
+            const DEADBAND_MULTIPLIER: f32 = 1.2; // reduces the frequency of chunks having to rebuild so often
             
             let chunk_rows = terrain_config.chunk_rows;
             let terrain_dimensions= terrain_config.terrain_dimensions;
             let terrain_origin = terrain_transform.translation();
-            let max_render_distance = terrain_config.get_max_render_distance() * deadband_multiplier;  
+            let max_render_distance = terrain_config.get_max_render_distance() * DEADBAND_MULTIPLIER;  
             
             //if too far away ...
             let chunk_coords = ChunkCoords::from_chunk_id(chunk_id, chunk_rows);
              
-             let chunk_world_location = chunk_coords.to_location(   
+            let chunk_world_location = chunk_coords.to_location(
                             terrain_origin, 
                             terrain_dimensions, 
                             chunk_rows 
                         );
     
-             let distance_to_chunk: Option<f32>  = match chunk_world_location {
+            let distance_to_chunk: Option<f32>  = match chunk_world_location {
                              Some( location ) => {
+                                // TODO: minor optimization — use distance_squared instead, because
+                                // distance requires relatively-slow square root calculations and 
+                                // we don't care about the _actual_ distance, just whether it is 
+                                // bigger than max_render_distance (squared).
                                  Some( location.distance( viewer_location ) ) 
                              },
                              None => None
-                             
-            } ; 
+                        };
             
-           
+            trace!("Viewer at {} Chunk {:?} at {}. Distance {}",viewer_location,chunk_id,chunk_world_location.unwrap(),distance_to_chunk.unwrap());
             
             let should_despawn = match distance_to_chunk {
                 Some( dist ) => dist > max_render_distance,
@@ -258,6 +263,7 @@ pub fn destroy_terrain_chunks(
             };
             
             if should_despawn {
+                debug!("Marking chunk {} for despawn because it is beyond max render distance ({} × {})",chunk_id,terrain_config.render_distance,DEADBAND_MULTIPLIER );
                  needs_despawn = Some(chunk_entity_id);
                  terrain_data.chunks.remove(  &chunk_id );   // this works 
             }
@@ -265,6 +271,7 @@ pub fn destroy_terrain_chunks(
         }else{
             
             //despawn it for sure 
+            debug!("Marking chunk {} for despawn because it has no parent.",chunk_id);
             needs_despawn = Some(chunk_entity_id);
             
         }
@@ -291,7 +298,7 @@ pub fn despawn_terrain_chunks(
     mut chunk_query: Query<Entity, With<NeedToDespawnChunk>>
 ){
     for chunk_entity_id in chunk_query.iter_mut() {
-        
+        debug!("Despawning chunk {:?}.",chunk_entity_id);
         commands.entity( chunk_entity_id  ).despawn();  
         
     } 
@@ -311,8 +318,7 @@ pub fn activate_terrain_chunks(
         
     let viewer_location:Vec3 = match viewer {
         Ok(view) => { view.translation() },
-        // FIX: probably should log a warning if there are multiple (or no) viewers, rather than just setting to the origin
-        Err(_e) => Vec3::new(0.0,0.0,0.0)
+        Err(_e) => { warn!("More than one TerrainViewer. Setting viewer location to 0,0,0 in confusion."); Vec3::ZERO }
     };
         
     for (terrain_config,mut terrain_data,terrain_transform) in terrain_query.iter_mut() { 
@@ -332,34 +338,29 @@ pub fn activate_terrain_chunks(
             terrain_dimensions, 
             chunk_rows
           );
-        
-           
-     
-       
-        
-              
-                
+
+
               let render_distance_chunks:i32  = terrain_config.get_chunk_render_distance() as i32 ; //make based on render dist 
               let lod_level_distance:f32 = terrain_config.get_chunk_lod_distance(); 
               let lod_level_offset:u8 = terrain_config.lod_level_offset;
+
               
         
                 // loop through the potential chunks that are around the client to maybe activate them 
                 for x_offset in  -1*render_distance_chunks ..render_distance_chunks  {
                     for z_offset in  -1*render_distance_chunks  ..render_distance_chunks   {
-                        
-                      
+                                              
 
                         let chunk_coords_x:i32 = chunk_coords_signed[0] as i32 + x_offset ;
                         let chunk_coords_z:i32 = chunk_coords_signed[1] as i32 + z_offset ;
 
-                        //prevent underflows 
-                        if  chunk_coords_x < 0 || chunk_coords_z < 0  {continue;} 
-                        
-                      //  println!("activate_terrain_chunks 1 {:?} {:?}", render_distance_chunks, chunk_coords_signed);
+                        trace!("Potential new chunk at {:?} + {},{}. Viewer location {} Chunk render distance: {}",chunk_coords_signed,x_offset,z_offset,viewer_location,render_distance_chunks);
 
-                      //  println!("xz_offset {:?} {:?} {:?}   ", viewer_location , x_offset, z_offset);
-    
+                        //prevent underflows 
+                        if  chunk_coords_x < 0 || chunk_coords_z < 0  {
+                            continue;
+                        } 
+                        
 
                         let chunk_coords =  [ chunk_coords_x as u32 , chunk_coords_z  as u32  ];
                         
@@ -371,14 +372,24 @@ pub fn activate_terrain_chunks(
                             chunk_rows 
                         );
 
-                                //why is chunk world location NOne ? 
-                       // println!("meep {:?} {:?} {:?} ",chunk_coords_signed, chunk_coords , chunk_world_location );
+                        // FIXME: why is chunk world location None ? 
+                        //    -- it's None for a lot of the values because the loop range is based
+                        //       on the configured render difference in world coordinates (arbitrary large numbers!)
+                        //       while the to_location function restricts to 0..chunk_rows. This all probably could
+                        //       stand to be refactored.
+                        trace!("Chunk coords signed {:?} chunk coords: {:?} world location {:?}",chunk_coords_signed, chunk_coords , chunk_world_location );
+
     
                          let distance_to_chunk: Option<f32>  = match chunk_world_location {
                              Some( location ) => {
+                                // TODO: same minor optimization as above. I haven't profiled, but
+                                // this inner loop gets run a lot
                                  Some( location.distance( viewer_location ) ) 
                              },
-                             None => None
+                             None => {
+                                trace!("world location None for {},{}",chunk_coords.x(),chunk_coords.y()); 
+                                None
+                             }
                              
                          } ;
         
@@ -392,7 +403,7 @@ pub fn activate_terrain_chunks(
                             },
                             None => 2 
                         } + lod_level_offset; 
-                      
+                        trace!("Level of detail set to {} for this potential chunk...",lod_level);
                         
                            let max_render_distance = terrain_config.get_max_render_distance() ;  
                
@@ -404,9 +415,10 @@ pub fn activate_terrain_chunks(
                           // println!("activate_terrain_chunks 2 {} {:?}", lod_level, distance_to_chunk) ;
                         
                        
-                        if !should_despawn  //prevents flicker 
-                           &&  chunk_coords_x >= 0 && chunk_coords_x < chunk_rows as i32
-                            && chunk_coords_z >=0 && chunk_coords_z < chunk_rows as i32  {
+                        if !should_despawn { //prevents flicker
+                        
+                            if chunk_coords_x >= 0 && chunk_coords_x < chunk_rows as i32
+                            && chunk_coords_z >= 0 && chunk_coords_z < chunk_rows as i32  {
                                 //then this is a valid coordinate location 
                                 activate_chunk_at_coords( 
                                     chunk_coords,  
@@ -414,9 +426,15 @@ pub fn activate_terrain_chunks(
                                     &terrain_config,
                                     lod_level
                                 );
+                                trace!("Activating chunk at {}x{} with level-of-detail {}",chunk_coords.x(),chunk_coords.y(),lod_level);
                                                                                                 
+                            } else {
+                                trace!("Not activating out-of-bounds chunk at {}x{}",chunk_coords.x(),chunk_coords.y());
                             }
-                        
+                        } else {
+                            trace!("Not activating too-far-away chunk at {}x{}",chunk_coords.x(),chunk_coords.y());
+                        }
+
                     }
                     
                 }
@@ -454,19 +472,24 @@ pub fn activate_chunk_at_coords(
        let chunk_data = terrain_data.chunks.get(&chunk_index).unwrap(); 
          
         // do not rebuild chunks until they are already fully built 
-        if chunk_data.chunk_state ==  ChunkState::FullyBuilt {
-            
+        if chunk_data.chunk_state !=  ChunkState::FullyBuilt {
+            trace!("Waiting for chunk #{} to be fully built.",chunk_index);
+        } else {
             let existing_lod = chunk_data.lod_level; 
             if lod_level != existing_lod && chunk_data.spawned_mesh_entity.is_some(){
                 //need_to_despawn = chunk_data.spawned_mesh_entity;           
                 need_to_spawn = true;
-                
-                
-            }  
-        }  
+                trace!("Changed level of detail for chunk #{}.",chunk_index);                
+            } else {
+                trace!("Not re-spawning existing chunk #{}.",chunk_index); 
+            }
+        }
+
+
         
     }else { 
         need_to_spawn = true;    
+        trace!("New chunk #{}.",chunk_index); 
     }
         
      /*   
@@ -477,7 +500,7 @@ pub fn activate_chunk_at_coords(
         
     if need_to_spawn {
         
-       
+        debug!("Spawning chunk at {}x{} with level-of-detail {}",chunk_coords.x(),chunk_coords.y(),lod_level);
          terrain_data.chunks.insert(  
             chunk_index  , 
             ChunkData {

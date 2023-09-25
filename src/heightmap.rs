@@ -95,12 +95,14 @@ pub trait HeightMap {
 impl HeightMap for HeightMapU16 {
     fn load_from_image(image:  &Image) ->    Result<Box<Self>,HeightMapError>   {
         
+        debug!("Processing heightmap image.");
         let width = image.size().x as usize;
         let height = image.size().y as usize;
         
         let format = image.texture_descriptor.format;
         
         if format != TextureFormat::R16Uint {
+            error!("Height map image must be in R16Uint format. (See https://docs.rs/wgpu/latest/wgpu/enum.TextureFormat.html#variant.R16Uint)");
            return Err( HeightMapError::LoadingError  );
         }
         
@@ -118,6 +120,8 @@ impl HeightMap for HeightMapU16 {
             }
             height_map.push(row);
         }
+        
+        debug!("Created new height map.");
 
        Ok(Box::new(  height_map  ) )
         
