@@ -520,13 +520,14 @@ pub fn build_active_terrain_chunks(
         let height_map_data =  &terrain_data.height_map_data .clone();
               
         if height_map_data.is_none() {
+            info!("Waiting for height map to become available.");
             continue; 
         }
               
         let terrain_material_handle_option = &terrain_data.terrain_material_handle.clone() ; 
               
         if terrain_material_handle_option.is_none() {
-            println!("no terrain material yet.. ");
+            info!("Waiting for terrain material to become available.");
             continue; 
         }
               

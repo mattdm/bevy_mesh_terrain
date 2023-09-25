@@ -89,7 +89,7 @@ pub fn spawn_chunk_collision_data(
          
                             
 
-                            //println!(" spawning collision data entity for chunk ");
+                            debug!("Spawning collision data entity for chunk.");
                         
                      }
                 

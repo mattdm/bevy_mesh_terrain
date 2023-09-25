@@ -179,7 +179,7 @@ pub fn load_height_map_data_from_image(
                         let height_map_loaded = asset_server.get_load_state( height_map_handle )  ;
                     
                         if height_map_loaded != LoadState::Loaded  {
-                            println!("height map not yet loaded");
+                            info!("Waiting for height map image to load.");
                             continue;
                         }  
                         
@@ -279,7 +279,7 @@ pub fn load_terrain_texture_from_image(
                         let texture_image_loaded = asset_server.get_load_state( texture_image_handle )  ;
                     
                         if texture_image_loaded != LoadState::Loaded  {
-                            println!("terrain texture not yet loaded");
+                            info!("Waiting for terrain texture image to load.");
                             continue;
                         }  
                         
